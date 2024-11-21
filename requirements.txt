@@ -1,0 +1,4 @@
+flask
+numpy
+faiss-cpu
+sentence-transformers
