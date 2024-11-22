@@ -2,79 +2,73 @@ from flask import Flask, request, jsonify
 import json
 import numpy as np
 import faiss
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import SentenceTransformer, CrossEncoder
 
+# Initialize Flask app
 app = Flask(__name__)
 
-# Global variables to hold loaded data
-index = None
-texts = None
-model = None
-
+# Load FAISS index and related data
 def load_faiss_and_data(embedding_file, faiss_index_file, data_file):
     """Load embeddings, FAISS index, and processed metadata."""
-    # Load embeddings (optional, if you want to inspect them)
     embeddings = np.load(embedding_file)
-
-    # Load FAISS index
     index = faiss.read_index(faiss_index_file)
-
-    # Load metadata and texts
     with open(data_file, 'r') as f:
         data = json.load(f)
-
     return embeddings, index, data["texts"], data["metadata"]
 
-def assistant_response(query, best_text):
-    """Generate an assistant-like response for the query."""
-    response_template = (
-        "Here is the best result I found based on your query:\n\n"
-        "Query: {query}\n\n"
-        "Answer: {best_text}\n\n"
-        "Let me know if you'd like further assistance or more details!"
-    )
-    return response_template.format(query=query, best_text=best_text)
+def rerank_results(query, top_texts):
+    """Rerank results using a CrossEncoder model."""
+    cross_encoder = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
+    scores = cross_encoder.predict([(query, text) for text in top_texts])
+    best_idx = np.argmax(scores)
+    return top_texts[best_idx], scores[best_idx], scores
 
-@app.route("/search", methods=["POST"])
-def search():
-    """Endpoint to handle search queries."""
-    global index, texts, model
-
-    # Get the query from the request
-    data = request.json
-    query = data.get("query", "")
-
-    if not query:
-        return jsonify({"error": "Query is missing"}), 400
-
-    # Generate embedding for the query
+def query_faiss_index_with_reranking(query, index, texts, model, top_k=5):
+    """Query the FAISS index and rerank results."""
     query_embedding = model.encode([query]).astype('float32')
+    distances, indices = index.search(query_embedding, top_k)
 
-    # Search the FAISS index
-    distances, indices = index.search(query_embedding, 1)  # Get only the best result
+    # Collect top results
+    top_texts = [texts[idx] for idx in indices[0]]
 
-    # Extract the best match
-    best_match_idx = indices[0][0]
-    best_distance = distances[0][0]
-    best_text = texts[best_match_idx]
+    # Rerank results using CrossEncoder
+    best_text, best_score, all_scores = rerank_results(query, top_texts)
 
-    # Generate assistant-like response
-    response = assistant_response(query, best_text)
-    return jsonify({"response": response, "distance": best_distance})
+    return {
+        "query": query,
+        "faiss_results": [{"text": text, "score": score} for text, score in zip(top_texts, all_scores)],
+        "best_result": {"text": best_text, "score": best_score}
+    }
 
-if __name__ == "__main__":
-    # File paths
+# Load models and data on startup
+@app.before_first_request
+def load_resources():
+    global index, texts, metadata, model
     embedding_file = "/combined_embeddings.npy"
     faiss_index_file = "/combined_faiss.index"
     data_file = "/processed_data.json"
 
-    # Load data and index
-    _, index, texts, _ = load_faiss_and_data(
-        embedding_file, faiss_index_file, data_file
-    )
+    # Load FAISS index and related data
+    _, index, texts, metadata = load_faiss_and_data(embedding_file, faiss_index_file, data_file)
 
-    # Initialize SentenceTransformer model
+    # Load SentenceTransformer model
     model = SentenceTransformer('all-MiniLM-L6-v2')
 
-    # Start the Flask app
+# Define API route
+@app.route('/query', methods=['POST'])
+def handle_query():
+    data = request.json
+    if 'query' not in data:
+        return jsonify({"error": "Query field is required"}), 400
+
+    query = data['query']
+    top_k = data.get('top_k', 5)  # Default to 5 results if not specified
+
+    # Perform FAISS query with reranking
+    response = query_faiss_index_with_reranking(query, index, texts, model, top_k)
+
+    return jsonify(response)
+
+# Run the Flask app
+if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
