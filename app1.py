@@ -64,6 +64,11 @@ def load_resources_once():
         model = SentenceTransformer('all-MiniLM-L6-v2')
         print("Resources loaded.")
 
+# Define root route (optional)
+@app.route('/')
+def home():
+    return "Flask app is running! Please use the /query endpoint for the API."
+
 # Define API route
 @app.route('/query', methods=['POST'])
 def handle_query():
