@@ -1,9 +1,9 @@
+import os
 from flask import Flask, request, jsonify
 import json
 import numpy as np
 import faiss
 from sentence_transformers import SentenceTransformer, CrossEncoder
-import os
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -41,19 +41,28 @@ def query_faiss_index_with_reranking(query, index, texts, model, top_k=5):
         "best_result": {"text": best_text, "score": best_score}
     }
 
-# Load models and data on startup
-@app.before_first_request
-def load_resources():
+# Initialize global variables
+index = None
+texts = None
+metadata = None
+model = None
+
+@app.before_request
+def load_resources_once():
+    """Load resources before handling the first request."""
     global index, texts, metadata, model
-    embedding_file = "/combined_embeddings.npy"
-    faiss_index_file = "/combined_faiss.index"
-    data_file = "/processed_data.json"
+    if index is None:  # Load resources only once
+        print("Loading resources...")
+        embedding_file = "/combined_embeddings.npy"
+        faiss_index_file = "/combined_faiss.index"
+        data_file = "/processed_data.json"
 
-    # Load FAISS index and related data
-    _, index, texts, metadata = load_faiss_and_data(embedding_file, faiss_index_file, data_file)
+        # Load FAISS index and related data
+        _, index, texts, metadata = load_faiss_and_data(embedding_file, faiss_index_file, data_file)
 
-    # Load SentenceTransformer model
-    model = SentenceTransformer('all-MiniLM-L6-v2')
+        # Load SentenceTransformer model
+        model = SentenceTransformer('all-MiniLM-L6-v2')
+        print("Resources loaded.")
 
 # Define API route
 @app.route('/query', methods=['POST'])
@@ -70,7 +79,7 @@ def handle_query():
 
     return jsonify(response)
 
+# Run the Flask app
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))  # Default to 5000 if PORT is not set
     app.run(host="0.0.0.0", port=port)
-
