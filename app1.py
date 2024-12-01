@@ -41,21 +41,18 @@ def query_faiss_index_with_reranking(query, index, texts, model, top_k=5):
         "best_result": {"text": best_text, "score": best_score}
     }
 
-# Initialize global variables
-index = None
-texts = None
-metadata = None
-model = None
-
-@app.before_request
+# Load models and data on startup
+@app.before_first_request
 def load_resources_once():
     """Load resources before handling the first request."""
     global index, texts, metadata, model
     if index is None:  # Load resources only once
         print("Loading resources...")
-        embedding_file = "/combined_embeddings.npy"
-        faiss_index_file = "/combined_faiss.index"
-        data_file = "/processed_data.json"
+        
+        # Use relative paths for the files
+        embedding_file = "combined_embeddings.npy"
+        faiss_index_file = "combined_faiss.index"
+        data_file = "processed_data.json"
 
         # Load FAISS index and related data
         _, index, texts, metadata = load_faiss_and_data(embedding_file, faiss_index_file, data_file)
@@ -78,6 +75,7 @@ def handle_query():
     response = query_faiss_index_with_reranking(query, index, texts, model, top_k)
 
     return jsonify(response)
+
 
 # Run the Flask app
 if __name__ == "__main__":
