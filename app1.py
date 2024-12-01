@@ -35,11 +35,16 @@ def query_faiss_index_with_reranking(query, index, texts, model, top_k=5):
     # Rerank results using CrossEncoder
     best_text, best_score, all_scores = rerank_results(query, top_texts)
 
+    # Convert all scores from float32 to regular Python float
+    all_scores = [float(score) for score in all_scores]
+    best_score = float(best_score)
+
     return {
         "query": query,
         "faiss_results": [{"text": text, "score": score} for text, score in zip(top_texts, all_scores)],
         "best_result": {"text": best_text, "score": best_score}
     }
+
 
 # Initialize global variables
 index = None
